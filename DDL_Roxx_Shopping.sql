@@ -2,7 +2,7 @@
    PROYECTO 1 · ELECTRONIC ROXX SHOPPING
    Universidad Rafael Landívar · Ciencia de Datos
    Jairo Omar Salazar Chávez 
-   DDL - Data Warehouse 
+   DDL - Data Warehouse - v3
    Dereck Alexander Cabrera NG - 1177223
    Mario Miguel Arevalo Perez  - 1072123
    */
@@ -15,20 +15,45 @@ SET search_path TO dw_roxx;
 
 
 -- DIM_DATE
+-- Dimensión de calendario y fiscal, generada con dimdates.com y
+-- transformada en Tableau Prep (recipe "DIM_DATE"). DateId se genera
+-- como ROW_NUMBER() secuencial (no como YYYYMMDD).
 
 CREATE TABLE dim_date (
-    date_id             INT             NOT NULL,          -- llave (YYYYMMDD)
-    full_date           DATE            NOT NULL,
-    day                 SMALLINT        NOT NULL,
-    month               SMALLINT        NOT NULL,
-    month_name          VARCHAR(20)     NOT NULL,
-    quarter             SMALLINT        NOT NULL,
-    year                SMALLINT        NOT NULL,
+    date_id                      INT             NOT NULL,          -- llave (ROW_NUMBER secuencial)
+    day_name                     VARCHAR(20)     NOT NULL,
+    month_name                   VARCHAR(20)     NOT NULL,
+    calendar_full_date           DATE            NOT NULL,
+    calendar_day                 SMALLINT        NOT NULL,
+    calendar_day_in_week         SMALLINT        NOT NULL,
+    calendar_day_in_month        SMALLINT        NOT NULL,
+    calendar_day_in_quarter      SMALLINT        NOT NULL,
+    calendar_day_in_year         SMALLINT        NOT NULL,
+    calendar_week                SMALLINT        NOT NULL,
+    calendar_month               SMALLINT        NOT NULL,
+    calendar_quarter             SMALLINT        NOT NULL,
+    calendar_year                SMALLINT        NOT NULL,
+    fiscal_full_date             DATE            NOT NULL,
+    fiscal_day                   SMALLINT        NOT NULL,
+    fiscal_day_in_week           SMALLINT        NOT NULL,
+    fiscal_day_in_month          SMALLINT        NOT NULL,
+    fiscal_day_in_quarter        SMALLINT        NOT NULL,
+    fiscal_day_in_year           SMALLINT        NOT NULL,
+    fiscal_week                  SMALLINT        NOT NULL,
+    fiscal_month                 SMALLINT        NOT NULL,
+    fiscal_quarter                SMALLINT        NOT NULL,
+    fiscal_year                  SMALLINT        NOT NULL,
+    first_or_last_day_in_week    VARCHAR(20)     NOT NULL,
+    first_or_last_day_in_month   VARCHAR(20)     NOT NULL,
+    first_or_last_day_in_year    VARCHAR(20)     NOT NULL,
+    weekend_or_weekday           VARCHAR(20)     NOT NULL,
+    leap_year                    VARCHAR(20)     NOT NULL,
     CONSTRAINT pk_dim_date PRIMARY KEY (date_id),
-    CONSTRAINT uq_dim_date_full_date UNIQUE (full_date),
-    CONSTRAINT ck_dim_date_day CHECK (day BETWEEN 1 AND 31),
-    CONSTRAINT ck_dim_date_month CHECK (month BETWEEN 1 AND 12),
-    CONSTRAINT ck_dim_date_quarter CHECK (quarter BETWEEN 1 AND 4)
+    CONSTRAINT uq_dim_date_full_date UNIQUE (calendar_full_date),
+    CONSTRAINT ck_dim_date_calendar_month CHECK (calendar_month BETWEEN 1 AND 12),
+    CONSTRAINT ck_dim_date_calendar_quarter CHECK (calendar_quarter BETWEEN 1 AND 4),
+    CONSTRAINT ck_dim_date_weekend CHECK (weekend_or_weekday IN ('WEEKEND', 'WEEKDAY')),
+    CONSTRAINT ck_dim_date_leap_year CHECK (leap_year IN ('LEAP YEAR', 'NOT LEAP YEAR'))
 );
 
 -- DIM_GEOGRAPHY
@@ -37,9 +62,20 @@ CREATE TABLE dim_geography (
     city                VARCHAR(80)     NOT NULL,
     state               VARCHAR(80)     NOT NULL,
     country             VARCHAR(80)     NOT NULL,
-    region              VARCHAR(80)     NOT NULL DEFAULT 'Desconocido',
+    region              VARCHAR(80)     NOT NULL DEFAULT 'DESCONOCIDO',
     CONSTRAINT pk_dim_geography PRIMARY KEY (geography_id),
-    CONSTRAINT uq_dim_geography_natural UNIQUE (city, state, country, region)
+    CONSTRAINT ck_dim_geography_region CHECK (
+        region IN (
+            'AFRICA', 'CANADA', 'CARIBBEAN', 'CENTRAL', 'CENTRAL ASIA', 'EAST',
+            'EMEA', 'NORTH', 'NORTH ASIA', 'OCEANIA', 'SOUTH', 'SOUTHEAST ASIA',
+            'DESCONOCIDO'
+        )
+    )
+    -- Nota v3: se eliminó el UNIQUE (city, state, country, region) porque el
+    -- propio perfilamiento del ETL detectó combinaciones de ciudad/región
+    -- duplicadas que el equipo decidió conservar a propósito ("Existen datos
+    -- duplicados, pero se decidió dejarlos ya que de lo contrario se
+    -- perderían datos" - ver recipe Clean 3 de DIM_GEOGRAPHY).
 );
 
 CREATE INDEX ix_dim_geography_country ON dim_geography (country);
@@ -58,9 +94,9 @@ CREATE TABLE dim_customer (
     marital_status         VARCHAR(30)     NOT NULL,
     CONSTRAINT pk_dim_customer PRIMARY KEY (customer_id_pk),
     CONSTRAINT uq_dim_customer_natural UNIQUE (customer_id),
-    CONSTRAINT ck_dim_customer_gender CHECK (gender IN ('Male', 'Female')),
-    CONSTRAINT ck_dim_customer_segment CHECK (segment IN ('Consumer', 'Corporate', 'Home Office')),
-    CONSTRAINT ck_dim_customer_marital CHECK (marital_status IN ('Single', 'Married')),
+    CONSTRAINT ck_dim_customer_gender CHECK (gender IN ('MALE', 'FEMALE')),
+    CONSTRAINT ck_dim_customer_segment CHECK (segment IN ('CONSUMER', 'CORPORATE', 'HOME OFFICE')),
+    CONSTRAINT ck_dim_customer_marital CHECK (marital_status IN ('SINGLE', 'MARRIED')),
     CONSTRAINT ck_dim_customer_age CHECK (age BETWEEN 0 AND 120)
 );
 
@@ -74,7 +110,7 @@ CREATE TABLE dim_product (
     CONSTRAINT pk_dim_product PRIMARY KEY (product_id),
     CONSTRAINT uq_dim_product_natural UNIQUE (product_name, product_category),
     CONSTRAINT ck_dim_product_category CHECK (
-        product_category IN ('Auto & Accessories', 'Electronic', 'Home & Furniture', 'Fashion')
+        product_category IN ('AUTO & ACCESSORIES', 'ELECTRONIC', 'HOME & FURNITURE', 'FASHION')
     )
 );
 
@@ -84,21 +120,27 @@ CREATE TABLE dim_product (
 CREATE TABLE dim_order (
     order_id_pk             SERIAL          NOT NULL,          -- llave  
     order_id                VARCHAR(80)     NOT NULL,          -- llave natural del origen 
-    order_priority          VARCHAR(20)     NOT NULL DEFAULT 'Desconocido',
-    ship_mode               VARCHAR(80)     NOT NULL DEFAULT 'Desconocido',
+    order_priority          VARCHAR(20)     NOT NULL DEFAULT 'DESCONOCIDO',
+    ship_mode               VARCHAR(80)     NOT NULL DEFAULT 'DESCONOCIDO',
     CONSTRAINT pk_dim_order PRIMARY KEY (order_id_pk),
     CONSTRAINT uq_dim_order_natural UNIQUE (order_id),
     CONSTRAINT ck_dim_order_priority CHECK (
-        order_priority IN ('Low', 'Medium', 'High', 'Critical', 'Desconocido')
+        order_priority IN ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL', 'DESCONOCIDO')
     ),
     CONSTRAINT ck_dim_order_ship_mode CHECK (
-        ship_mode IN ('Standard Class', 'Second Class', 'First Class', 'Same Day', 'Desconocido')
+        ship_mode IN ('STANDARD CLASS', 'SECOND CLASS', 'FIRST CLASS', 'SAME DAY', 'DESCONOCIDO')
     )
+    -- Nota v3: se eliminó el filtro que excluía únicamente el código '45788'
+    -- porque ahora el propio CHECK rechaza cualquier valor de ship_mode que
+    -- no pertenezca al dominio válido, incluyendo ese caso.
 );
 
 
 
 -- DIM_BEHAVIOR
+-- Nota v3: liked/shared/added_to_cart pasaron de '0'/'1' a texto
+-- descriptivo, tal como se transformó en el recipe "Clean 2" de
+-- DIM_BEHAVIOR (Tableau Prep).
 CREATE TABLE dim_behavior (
     behavior_id             SERIAL          NOT NULL,
     browsing_time_min       DECIMAL(8,2)    NOT NULL,
@@ -107,14 +149,17 @@ CREATE TABLE dim_behavior (
     added_to_cart            VARCHAR(20)     NOT NULL,
     CONSTRAINT pk_dim_behavior PRIMARY KEY (behavior_id),
     CONSTRAINT uq_dim_behavior_natural UNIQUE (browsing_time_min, liked, shared, added_to_cart),
-    CONSTRAINT ck_dim_behavior_liked   CHECK (liked IN ('0', '1')),
-    CONSTRAINT ck_dim_behavior_shared  CHECK (shared IN ('0', '1')),
-    CONSTRAINT ck_dim_behavior_cart    CHECK (added_to_cart IN ('0', '1')),
+    CONSTRAINT ck_dim_behavior_liked   CHECK (liked IN ('LIKED', 'NOT LIKED')),
+    CONSTRAINT ck_dim_behavior_shared  CHECK (shared IN ('SHARED', 'NOT SHARED')),
+    CONSTRAINT ck_dim_behavior_cart    CHECK (added_to_cart IN ('ADDED TO CART', 'NOT ADDED TO CART')),
     CONSTRAINT ck_dim_behavior_time    CHECK (browsing_time_min >= 0)
 );
 
 
 -- FACT_SALES
+-- Nota v3: se agregan category_key, shipping_key (sin FK; ver nota de
+-- diseño en el manual técnico) y unit_price (calculado en el ETL como
+-- ROUND(Sales / Quantity, 2)).
 CREATE TABLE fact_sales (
     sales_fact_key        BIGSERIAL       NOT NULL,
     customer_key          INT             NOT NULL,
@@ -123,12 +168,15 @@ CREATE TABLE fact_sales (
     product_key           INT             NOT NULL,
     order_key             INT             NOT NULL,
     behavior_key          INT             NOT NULL,
+    category_key          INT,                              -- sin dimensión propia (ver nota v3)
+    shipping_key          INT,                              -- sin dimensión propia (ver nota v3)
 
     sales_amount          DECIMAL(12,2)   NOT NULL,
     quantity              INT             NOT NULL,
     discount_rate         DECIMAL(6,4)    NOT NULL,
     profit_amount         DECIMAL(12,2)   NOT NULL,
     shipping_cost         DECIMAL(12,2)   NOT NULL,
+    unit_price             DECIMAL(12,2)  NOT NULL,          -- calculado: ROUND(sales_amount / quantity, 2)
     load_date              TIMESTAMP      NOT NULL DEFAULT now(),
 
     CONSTRAINT pk_fact_sales PRIMARY KEY (sales_fact_key),
@@ -149,7 +197,8 @@ CREATE TABLE fact_sales (
     CONSTRAINT ck_fact_sales_amount        CHECK (sales_amount >= 0),
     CONSTRAINT ck_fact_sales_quantity      CHECK (quantity > 0),
     CONSTRAINT ck_fact_sales_discount      CHECK (discount_rate BETWEEN 0 AND 1),
-    CONSTRAINT ck_fact_sales_shipping_cost CHECK (shipping_cost >= 0)
+    CONSTRAINT ck_fact_sales_shipping_cost CHECK (shipping_cost >= 0),
+    CONSTRAINT ck_fact_sales_unit_price    CHECK (unit_price >= 0)
 );
 
 -- indices sobre FKs
@@ -162,5 +211,3 @@ CREATE INDEX ix_fact_sales_behavior_key  ON fact_sales (behavior_key);
 
 -- indice compuesto para el tablero del proceso de negocio
 CREATE INDEX ix_fact_sales_date_product ON fact_sales (date_key, product_key);
-
-
